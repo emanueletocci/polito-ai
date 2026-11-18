@@ -52,14 +52,22 @@ Alberto Mercurelli, s360214 \quad Emanuele Tocci, s363290}
 
 \vspace{-2pt}
 
-We study the intrusion-detection dataset of the lab: 31,507 network flows described by 16
-numerical features and a label with four classes (Benign, Brute Force, DoS Hulk, PortScan).
-The report follows the six tasks of the lab. Every number quoted here can be reproduced from the
-executed notebook; every model is referred to by the run identifier (\run{R1} to \run{R24}), the same
-numbering as the variables \texttt{r1} to \texttt{r24} in the notebook and as the logbook in
-Appendix~A. We use 24 training runs in total
-(Task~2: 6, Task~4: 2, Task~5: 10, Task~6: 6), and the test set is touched only where the lab
-explicitly asks for it (5D and the final Task~6 verdict), never to choose a model.
+The lab provides 31,507 network flows described by 16 numerical features and labelled Benign,
+Brute Force, DoS Hulk or PortScan: a four-class intrusion-detection problem in which the interesting
+classes are the rare ones. The report walks through it in six tasks, from the data to the
+architecture.
+
+The result that organises the whole report is that the data decisions, not the architecture,
+account for the differences that matter: scaling is worth 0.062 macro-F1, above the 0.05 noise
+threshold of Section~\ref{sec:noise}; the class weights buy rare-class recall at a price of 0.075
+macro-F1; and removing the destination port costs 0.024 while it removes a shortcut on which the
+model had been relying entirely. Once the loss function and the training protocol are held fixed,
+no architecture, optimizer or regularizer of Tasks~5 and 6 improves on a single 64-unit layer
+beyond the threshold.
+
+The 24 runs are numbered \run{R1} to \run{R24}, as the variables \texttt{r1} to \texttt{r24} in the
+notebook and as the logbook in Appendix~A. Models are chosen on validation only; the test set
+appears where the lab asks for a verdict (5D and the end of Task~6).
 
 % ===========================================================================
 \section{Task 1: Preprocessing}\label{sec:task1}
@@ -87,13 +95,13 @@ inspection of the 16 features found four kinds of problems (Figure~\ref{fig:issu
         \texttt{Fwd PSH Flags} $=$ \texttt{SYN Flag Count}).
 \end{itemize}
 
-\textbf{Cleaning.} We drop the 27 rows with an infinite or a missing value and the 2 rows with
-negative values: 29 rows out of 31,507 is a negligible loss, and keeping them would either break
-the scaling or teach the model a value that does not exist. We then drop the duplicate rows,
+\textbf{Cleaning.} The 27 rows with an infinite or a missing value and the 2 rows with negative
+values are dropped: 29 rows out of 31,507 is a negligible loss, and keeping them would either break
+the scaling or teach the model a value that does not exist. The duplicate rows are then dropped,
 because a duplicated flow can end up in both the training and the test set: the model would be
 tested on traffic it has already seen and the score would be optimistic. Deduplication is the
 \emph{last} step, because in Task~3 the same function is called with \texttt{drop\_port=True} and
-removing the port creates new duplicates. We keep the two identical pairs of columns: they are
+removing the port creates new duplicates. The two identical pairs of columns are kept: they are
 redundant but harmless for a feed-forward network, and they keep the column layout identical with
 and without the destination port, so the two halves of the lab stay comparable.
 
@@ -132,7 +140,7 @@ this scale but never zero.}
 \label{fig:issues}
 \end{figure}
 
-\textbf{Split.} We split 70/15/15 with stratification and seed 42: 20,568 training, 4,408
+\textbf{Split.} The split is 70/15/15, stratified, with seed 42: 20,568 training, 4,408
 validation and 4,408 test flows, with 214 Brute Force flows in both validation and test.
 
 \qa{Given what you found about class balance, should the split be stratified? Why? Where did you
@@ -162,8 +170,8 @@ random split moves Brute Force between partitions.}
 \texttt{log1p} followed by \texttt{StandardScaler}, fitted on the training set. The raw features
 span very different ranges: the flag counters are 0/1, the number of forward packets has median 2
 and maximum 18,605 (3,141 in the training set), \texttt{Flow Duration} reaches $1.2\cdot10^{8}$ and \texttt{Flow Bytes/s}
-$2.1\cdot10^{9}$. These extremes are plausible flows (long sessions, attack traffic), so we kept
-them instead of clipping them, and compared three scalers (Figure~\ref{fig:scaling}).
+$2.1\cdot10^{9}$. These extremes are plausible flows (long sessions, attack traffic), so they were kept
+instead of being clipped, and three scalers were compared (Figure~\ref{fig:scaling}).
 \texttt{StandardScaler} alone divides by a standard deviation inflated by the tails: the central
 50\% of the features is squeezed into a median IQR of 0.16 and the largest value still reaches 85,
 so most of the data collapses around zero. \texttt{RobustScaler} keeps the bulk well spread (median
@@ -191,7 +199,7 @@ without leaving extreme values.}
 \textbf{Setup.} One hidden layer of 64 units, ReLU, cross-entropy loss, AdamW with learning rate
 $5\cdot10^{-4}$ and weight decay 0.01, batch size 64, at most 100 epochs, early stopping on the
 validation loss (patience 10, $\min\Delta=10^{-5}$, best weights restored), seed 42. These are the
-values suggested by the lab; we keep them unchanged so that \run{R1} is a simple, reproducible
+values suggested by the lab; they are kept unchanged so that \run{R1} is a simple, reproducible
 reference.
 
 \textbf{Prediction (before running).} Brute Force is the hardest class, with the lowest
@@ -199,8 +207,8 @@ reference.
 favour the majority class.
 
 \qa{How do you pick the ``best'' model across epochs? Do the curves converge?}
-We keep the weights of the epoch with the lowest validation loss, checked after every epoch, with
-patience 10 and the best weights restored at the end. We use the loss rather than the macro-F1
+The weights kept are those of the epoch with the lowest validation loss, checked after every epoch,
+with patience 10 and the best weights restored at the end. The loss is used rather than the macro-F1
 because the loss is what the network minimises and it changes smoothly, while the macro-F1 jumps
 from one epoch to the next when a single rare flow changes side (Figure~\ref{fig:r1}, right). The
 curves do converge: both losses fall quickly in the first 20 epochs and then decrease very slowly,
@@ -250,10 +258,10 @@ Macro avg    & 0.973 & 0.994 & 0.983 & 4,408\\
 Each run starts from \run{R1} and changes one thing (Table~\ref{tab:2b}, Figure~\ref{fig:2b}).
 
 \textbf{Noise threshold.} Every run uses one seed, and validation holds only 43 PortScan flows once
-the port is removed, so small differences are not reliable. We treat a difference in validation
-macro-F1 below 0.05 as noise and apply this one rule to every comparison of the report. Counting
-flows alone does not give this value (one PortScan flow moves the macro-F1 by about 0.003); it
-comes from two measurements. Running the same notebook with the same seeds on a CPU instead of the
+the port is removed, so small differences are not reliable. A difference in validation macro-F1
+below 0.05 is treated as noise, and this one rule is applied to every comparison of the
+report. Counting flows alone does not give this value (one PortScan flow moves the macro-F1 by about
+0.003); it comes from two measurements. Running the same notebook with the same seeds on a CPU instead of the
 GPU moved the macro-F1 of single runs by up to 0.042 (\run{R3}: 0.910 on GPU, 0.952 on CPU;
 \run{R16}: 0.817 and 0.782). And the validation macro-F1 of \run{R19} jumps by up to about 0.07
 between consecutive epochs (Figure~\ref{fig:6a}). Differences above 0.05 are reported as effects,
@@ -271,12 +279,12 @@ of the 214 Brute Force flows are missed in all four runs, so every degraded mode
 subset of Brute Force flows and the differences in Brute Force F1 come from precision.
 
 The data do not say that scaling is the most harmful failure: S1 is the least harmful in macro-F1
-and in Brute Force F1. We would still fix \emph{scaling} first, for reasons that macro-F1 hides.
+and in Brute Force F1. \emph{Scaling} would still be fixed first, for reasons that macro-F1 hides.
 Without scaling the loss never gets close to the minimum (it stays in the thousands, against 0.03
 for \run{R1}) and the validation macro-F1 swings between 0.55 and 0.92 from one epoch to the next
 (Figure~\ref{fig:2b}, panel a), so the model is unreliable even when its best epoch looks acceptable.
-AdamW rescales the step of every parameter, so we expect it to hide part of the damage; we did not
-test another optimizer and would not count on this in a new problem. Scaling is also a property of
+AdamW rescales the step of every parameter, so it is expected to hide part of the damage; no other
+optimizer was tested, and this should not be counted on in a new problem. Scaling is also a property of
 the data that no learning rate can compensate, and it costs one line. The learning rate is the
 second knob: it needs a sweep, but its failures (S2, S3) are visible at once in the loss curve.
 
@@ -325,7 +333,7 @@ far from the minimum at epoch 100.}
 \subsection{Task 2C: Final baseline}
 \run{R5} repeats \run{R1} with 300 epochs, since \run{R1} was still improving at epoch 96 of 100. It
 reaches the same 0.983 macro-F1 (best epoch 156 of 166): the extra budget bought stability, not
-accuracy, and we keep it as the baseline to beat. \run{R6} then changes the activation to linear.
+accuracy, and it is kept as the baseline to beat. \run{R6} then changes the activation to linear.
 
 \qa{Compare validation vs test. Does it generalize (is the gap small)?}
 Yes (Table~\ref{tab:2c}). Validation: accuracy 0.992, macro-F1 0.983, loss 0.0273. Test: accuracy 0.992, macro-F1 0.983,
@@ -380,8 +388,9 @@ Brute Force flow was missed), and where the linear model lost most of its accura
 \qa{(Counterfactual, after running) Did your prediction hold? What does this reveal about what the
 model was really using to detect Brute Force?}
 Prediction (written before running): Brute Force recall would collapse, because the model never
-learned to recognise the traffic, only the port. It held, completely. We moved the 214 Brute Force
-test flows from port 80 to port 8080 and re-ran inference with \run{R5}, without retraining: recall
+learned to recognise the traffic, only the port. It held, completely. The 214 Brute Force test
+flows were moved from port 80 to port 8080 and inference was re-run with \run{R5}, without
+retraining: recall
 1.000 $\to$ 0.000 (F1 0.000), accuracy 0.992 $\to$ 0.943, macro-F1 0.983 $\to$ 0.736, and the
 unweighted loss jumps from 0.028 to 0.903. Benign, DoS Hulk and PortScan are essentially unchanged
 (recall 0.989, 0.997, 0.997), and all 214 Brute Force flows are now predicted Benign
@@ -396,8 +405,8 @@ changed (80 $\to$ 8080). The Brute Force row has no correct prediction left.}
 \label{fig:cf}
 \end{figure}
 
-\textbf{The port-free dataset.} We remove \texttt{Destination Port} and redo cleaning, split and
-scaling. Table~\ref{tab:t3} compares three datasets: \run{D} (with the port, de-duplicated),
+\textbf{The port-free dataset.} \texttt{Destination Port} is removed and cleaning, split and
+scaling are redone. Table~\ref{tab:t3} compares three datasets: \run{D} (with the port, de-duplicated),
 \run{D1} (port removed, no deduplication) and \run{D2} (port removed, de-duplicated), which is the
 one used from Task~4 on. \run{D2} keeps 22,468 flows: 15,727 training, 3,370 validation, 3,371
 test.
@@ -479,7 +488,7 @@ From the training split of \run{D2} only, with $\mathrm{weight}_c = N/(K\,n_c)$ 
 training flows: Benign 0.33, Brute Force 3.94, DoS Hulk 1.45, PortScan 19.76. Weights computed on
 validation or test would encode the evaluation distribution into the loss: the model would be
 optimised for the set used to judge it, the numbers would be optimistic, and the weights could not
-be reproduced on new traffic whose composition we do not know.
+be reproduced on new traffic whose composition is not known.
 
 \qa{(After running \run{R8}) Did accuracy and macro-F1 move in the same direction? For an intrusion
 detector that must catch rare attacks, which metric should you optimize, and why?}
@@ -488,14 +497,14 @@ What the weights bought is recall: PortScan 0.907 $\to$ 0.977, Brute Force 0.939
 Hulk 0.967 $\to$ 0.979. What they cost is precision on the rarest class: PortScan 0.975 $\to$ 0.553,
 i.e.\ 34 false alarms on 2,533 Benign flows instead of 1. This is the expected trade, and it does not
 help macro-F1, which averages precision and recall. For an intrusion detector what matters most is
-rare-class \emph{recall}, but recall alone is maximised by flagging everything as an attack, so we
-select every model on validation \emph{macro-F1}, which also penalises false alarms, and we report
-precision and recall of the rare classes next to it. \run{R8} shows the reason: it has the best
+rare-class \emph{recall}, but recall alone is maximised by flagging everything as an attack, so
+every model is selected on validation \emph{macro-F1}, which also penalises false alarms, and the
+precision and recall of the rare classes are reported next to it. \run{R8} shows the reason: it has the best
 PortScan recall and the worst macro-F1. Accuracy is dominated by Benign (75\% of
 the flows) and can be high while the detector misses the attacks it exists for. A missed attack and
 a false alarm do not have the same cost, so the right output is not a single number but an operating
-point chosen on the precision/recall curve; with 43 PortScan flows in validation, we can only state
-the trade, not tune it finely.
+point chosen on the precision/recall curve; with 43 PortScan flows in validation, the trade can
+only be stated, not tuned finely.
 
 \begin{table}[htbp]
 \centering\small
@@ -521,15 +530,15 @@ running (Appendix~A).
 
 \textbf{Parent of Tasks 5 and 6.} \run{R9} to \run{R19} start from the weighted \run{R8}, the model
 Task~4 ends with, because the weights give the best rare-class recall (PortScan 0.977 against 0.907).
-By our own selection criterion, validation macro-F1, \run{R7} would be the better parent: \run{R8} is
-0.075 below it (0.884 against 0.959). This is a limitation of the design, and we do not hide it:
-every run of Task~5 inherits the weights of \run{R8}, so when a Task~5 model stays below \run{R7} the
-runs cannot say how much of the gap is the architecture and how much is the loss. We keep \run{R8}
-because it is the model the lab carries forward from Task~4, and we compare the Task~5 runs with each
-other (one change at a time) rather than with \run{R7}.
+By the selection criterion of this report, validation macro-F1, \run{R7} would be the better parent:
+\run{R8} is 0.075 below it (0.884 against 0.959). This is a limitation of the design, and it is not
+hidden: every run of Task~5 inherits the weights of \run{R8}, so when a Task~5 model stays below
+\run{R7} the runs cannot say how much of the gap is the architecture and how much is the loss. \run{R8}
+is kept because it is the model the lab carries forward from Task~4, and the Task~5 runs are compared
+with each other (one change at a time) rather than with \run{R7}.
 
 \subsection{5A: Depth}
-We chose three configurations instead of a grid: (64,32) adds one layer to the baseline,
+Three configurations were chosen instead of a grid: (64,32) adds one layer to the baseline,
 (64,32,16) adds a narrower third layer, and (128,64,32) widens that three-layer network, so depth
 and width are measured separately. All three keep the balanced loss and 300 epochs of \run{R8}.
 
@@ -538,17 +547,17 @@ that suggest about the complexity of this task?}
 Not measurably. With the weights fixed, the second layer gives +0.017 (0.884 $\to$ 0.901), the
 third $-$0.004 (0.897), and the wider (128,64,32) reaches 0.925 (+0.028 over the three-layer
 (64,32,16) and +0.041 over the single layer, Table~\ref{tab:t5}). All these differences are below the
-noise threshold, so we cannot say that depth or width helps. What we can say is that none of the
-configurations reaches the \emph{unweighted} single-layer baseline of Task~4 (0.959), and that the gap
+noise threshold, so it cannot be said that depth or width helps. What can be said is that none of
+the configurations reaches the \emph{unweighted} single-layer baseline of Task~4 (0.959), and that the gap
 between the two baselines (0.075) is larger than anything the architecture adds: the loss function
 matters more than depth. This suggests a low-dimensional, largely separable task in which a single
 hidden layer already has enough capacity, and where the remaining errors come from the overlap
 between classes rather than from missing interactions. That comparison with \run{R7} is however
 confounded, because every run here keeps the weighted loss; a clean test would train the same
-architecture from \run{R7}, which we did not do.
+architecture from \run{R7}, which was not done.
 
 \subsection{5B: Batch size}
-We bracket the two extremes: 16, 128 and 1024, all on the 1$\times$64 weighted baseline.
+The two extremes are bracketed with 16, 128 and 1024, all on the 1$\times$64 weighted baseline.
 
 \qa{Report validation results and training time, and explain both.}
 At batch 16 the model is by far the slowest: 37.7 s for 60 epochs, 0.63 s per epoch, because each
@@ -556,7 +565,7 @@ epoch contains 983 weight updates instead of 123 or 16. Batch 128 takes 12.2 s (
 per epoch) and batch 1024 15.8 s (300 epochs, 0.053 s per epoch) (Table~\ref{tab:t5}). The largest
 batch has the cheapest epochs but needs almost three times as many of them, so overall it is slower
 than batch 128. In validation macro-F1 batch 16 is nominally ahead (0.899 against 0.868 and 0.866),
-but the gaps (0.031 and 0.033) are below the noise threshold, so we do not claim that small batches
+but the gaps (0.031 and 0.033) are below the noise threshold, so it is not claimed that small batches
 generalise better; only the ordering of the times is solid. With 15,727 training flows, batch 1024
 sees only $\sim$4,800 updates in 300 epochs against $\sim$59,000 for batch 16, so part of any gap is
 an optimization budget, not the batch size itself. Times are wall-clock seconds on one GPU and
@@ -579,7 +588,7 @@ family was run at its own learning rates, so the runs cannot attribute the gap t
 decay is not the same operation in the two optimizers: AdamW applies it directly to the weights,
 while in SGD it is an L2 term added to the gradient. A possible reason for the low SGD scores (0.78 to
 0.82) is therefore that SGD cannot afford a weight decay of 0.01 at these learning rates, but this is
-a hypothesis we did not test: no SGD run uses weight decay 0.
+an untested hypothesis: no SGD run uses weight decay 0.
 
 \subsection{5D: Verdict}
 \qa{Did the added complexity beat the simple baseline? Was it worth the runs it cost?}
@@ -592,8 +601,8 @@ not separate the two. Inside Task~5 the differences between architectures are be
 \run{R11} finds PortScan more often than \run{R7} (recall 0.977 vs 0.884) only by accepting many more
 false alarms (precision 0.808 vs 0.974) and a worse Brute Force F1 (0.895 vs 0.949). Ten runs of
 Task~5 produced no model better than the 1$\times$64 network of Task~4 beyond noise: the architecture
-was not the bottleneck, and the runs were not worth it beyond what we learned about depth, batch size
-and optimizers.
+was not the bottleneck, and the runs were not worth it beyond what they showed about depth, batch
+size and optimizers.
 
 \begin{table}[htbp]
 \centering\small
@@ -658,7 +667,7 @@ loss keeps falling to $\sim$0.03 while the validation loss climbs steadily to $\
 epochs only make the model fit the training flows. The classification metric stays flat (the final
 model, at epoch 200, scores 0.951), but the per-class table shows where the memorisation is:
 PortScan recall is 1.000 on training and 0.953 on validation, so the network memorises a few rare
-flows rather than the whole dataset. One caveat we checked: the curves use the weighted criterion of
+flows rather than the whole dataset. One caveat was checked: the curves use the weighted criterion of
 \texttt{fit}, while the table of \texttt{eval\_split} is unweighted. On the final model the unweighted
 loss is 0.058 on training and 0.072 on validation (gap 0.014), against a weighted validation loss of
 0.177 at the same epoch. The two scales are not comparable, and 0.072 is an unweighted final value,
@@ -687,9 +696,9 @@ all of them are within the noise threshold of \run{R19} and of each other. The c
 stopping: it cuts the run from 200 to 25 epochs (4.0 s instead of 33.0 s) for a nominal cost of
 0.032 that is not distinguishable from noise. On top of it, weight decay adds +0.002, dropout 0.24
 a further +0.002 (0.923, the best nominal score of the regularized runs, 9.1 s) and batch
-normalization $-$0.016, which is what we predicted for such a small network; all are noise. The
+normalization $-$0.016, which is what was predicted for such a small network; all are noise. The
 one-layer network \run{R24} reaches 0.923 ($-$0.028 from \run{R19}, also noise), so capacity does not
-separate the runs either. We cannot rank the regularizers: early stopping is the choice if cost
+separate the runs either. The regularizers cannot be ranked: early stopping is the choice if cost
 matters, and otherwise the unregularized \run{R19} is nominally the best.
 
 \qa{In the end, did the big network, even with regularization, do better on the test set than your
@@ -708,7 +717,8 @@ of the four matters, and for \run{R24} it cannot be the capacity, which is the s
 Per class, \run{R22} finds PortScan more often (recall 1.000 vs 0.884) but with more false alarms
 (precision 0.827 vs 0.974) and is slightly worse on Brute Force (F1 0.882 vs 0.949), while \run{R19}
 reaches PortScan precision and recall 0.915 and 1.000 and Brute Force F1 0.943. The simple 1$\times$64
-unweighted network is therefore as good as any model of the lab, and it is the one we would keep.
+unweighted network is therefore as good as any model of the lab, and it is the one that would be
+kept.
 
 \qa{Final reflection: looking across the whole logbook, which decisions gave you the most performance
 per unit of effort?}
@@ -779,11 +789,11 @@ Budget: 24 runs in total, of which 10 in Task~5 and 6 in Task~6.
 \renewcommand{\arraystretch}{1.15}
 \begin{longtable}{@{}>{\raggedright\arraybackslash}p{1.3cm}>{\raggedright\arraybackslash}p{0.75cm}>{\raggedright\arraybackslash}p{3.0cm}>{\raggedright\arraybackslash}p{3.3cm}>{\raggedright\arraybackslash}p{2.4cm}>{\raggedright\arraybackslash}p{3.8cm}@{}}
 \toprule
-Run & Task & What I changed & Hypothesis before running & Key result (val) & What I concluded\\
+Run & Task & Change & Hypothesis before running & Key result (val) & Conclusion\\
 \midrule
 \endfirsthead
 \toprule
-Run & Task & What I changed & Hypothesis before running & Key result (val) & What I concluded\\
+Run & Task & Change & Hypothesis before running & Key result (val) & Conclusion\\
 \midrule
 \endhead
 \bottomrule

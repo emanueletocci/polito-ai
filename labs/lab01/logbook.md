@@ -2,7 +2,7 @@
 
 One row per run that trains a model; preprocessing and data-analysis decisions are in the notebook and in the report. Budget: 24 runs out of the ~25 allowed (Task 5: 10, Task 6: 6). Validation is the split used to choose every model; test is only used in 5D and in the final Task 6 verdict.
 
-| Run | Task | What I changed (one thing) | Hypothesis before running | Key result (validation) | What I concluded |
+| Run | Task | Change (one thing) | Hypothesis before running | Key result (validation) | Conclusion |
 |---|---|---|---|---|---|
 | R1 | 2A | First baseline: 1 hidden layer of 64 units, ReLU, AdamW 5e-4, batch 64, <=100 epochs, early stopping. | PortScan is the easiest class (its flows share a port pattern); Brute Force is the hardest because it is the rarest (4.9%) and its flows are short. | macro-F1 0.983, acc 0.992, best epoch 96/100 | Confirmed only in part: Brute Force has the lowest F1 (0.953) but a recall of 0.995, so rarity does not cost recalls; the low F1 comes from precision. The model can exploit port 80. |
 | R2 (<-R1) | 2B | S1: train on raw, unscaled features; everything else as 2A. | Features span 1e0 to 1e9, so the gradient is badly conditioned: slower, noisier descent and a worse plateau. | macro-F1 0.921, acc 0.953, best epoch 46/56, BF-F1 0.846 | Confirmed: validation macro-F1 falls from 0.983 to 0.921 (-0.062). It is the least harmful of the three failures, because AdamW adapts the step per parameter, yet the loss stays in the thousands and the F1 swings between epochs: scaling is still the first fundamental to fix. |
